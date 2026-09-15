@@ -2,6 +2,7 @@ from pathlib import Path
 import shutil
 import uuid
 import subprocess
+import time
 
 import imageio_ffmpeg
 
@@ -17,9 +18,7 @@ from fastapi.responses import FileResponse, Response
 from backend.audio_processor import process_audio
 
 
-
 # FASTAPI
-
 
 app = FastAPI(
     title="Human Voice Extraction API",
@@ -32,9 +31,7 @@ app = FastAPI(
 )
 
 
-
 # DIRECTORIES
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -59,34 +56,28 @@ OUTPUT_DIR.mkdir(
 )
 
 
-
 # BUNDLED FFMPEG
-
 
 try:
 
     FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
     print()
-    
+
     print("FFmpeg executable:")
     print(FFMPEG_EXE)
-   
 
 except Exception as e:
 
     FFMPEG_EXE = None
 
     print()
-  
+
     print("WARNING: Could not locate bundled FFmpeg.")
     print("Error:", e)
-   
-
 
 
 # ALLOWED AUDIO EXTENSIONS
-
 
 ALLOWED_AUDIO_EXTENSIONS = {
     ".wav",
@@ -108,14 +99,10 @@ ALLOWED_AUDIO_EXTENSIONS = {
 }
 
 
-
 # CHECK BUNDLED FFMPEG
 
 def check_ffmpeg():
-    """
-    Check whether the FFmpeg executable bundled
-    with imageio-ffmpeg is available and working.
-    """
+   
 
     if not FFMPEG_EXE:
         return False
@@ -144,23 +131,17 @@ def check_ffmpeg():
         return False
 
 
-
 # CONVERT ANY AUDIO TO WAV
-
 
 def convert_to_wav(
     input_file,
     output_file,
 ):
-    """
-    Convert the uploaded audio file into
-    mono PCM WAV using bundled FFmpeg.
-    """
+    
 
     print()
-    
+
     print("CONVERTING AUDIO TO WAV")
-    
 
     print(
         "Input:",
@@ -172,9 +153,7 @@ def convert_to_wav(
         output_file,
     )
 
-   
     # Check FFmpeg
-   
 
     if not check_ffmpeg():
 
@@ -184,9 +163,7 @@ def convert_to_wav(
             "python -m pip install imageio-ffmpeg"
         )
 
-    
     # FFmpeg command
-   
 
     command = [
         FFMPEG_EXE,
@@ -218,24 +195,22 @@ def convert_to_wav(
         text=True,
     )
 
-   
     # Check FFmpeg result
-   
+
     if result.returncode != 0:
 
         print()
-      
+
         print("FFMPEG ERROR")
-       
+
         print(result.stderr)
 
         raise RuntimeError(
             "FFmpeg could not convert the uploaded audio."
         )
 
-  
     # Verify output
-    
+
     output_path = Path(output_file)
 
     if not output_path.exists():
@@ -256,9 +231,7 @@ def convert_to_wav(
     )
 
 
-
 # HOME
-
 
 @app.get("/")
 def home():
@@ -276,7 +249,6 @@ def home():
     }
 
 
-
 # FFMPEG STATUS
 
 @app.get("/ffmpeg")
@@ -291,8 +263,8 @@ def ffmpeg_status():
     }
 
 
-
 # PROCESS AUDIO
+
 class AudioWAVResponse(Response):
     media_type = "audio/wav"
 
@@ -324,9 +296,17 @@ async def process_uploaded_audio(
     file: UploadFile = File(...)
 ):
 
-   
+    # START TOTAL API LATENCY TIMER
+
+    start_time = time.perf_counter()
+
+    print()
+    
+    print("STARTING AUDIO PROCESSING")
+  
+
     # VALIDATE FILENAME
-   
+
     if not file.filename:
 
         raise HTTPException(
@@ -334,8 +314,7 @@ async def process_uploaded_audio(
             detail="No audio file selected.",
         )
 
-     # GET FILE EXTENSION
-  
+    # GET FILE EXTENSION
 
     original_filename = Path(
         file.filename
@@ -355,9 +334,7 @@ async def process_uploaded_audio(
             ),
         )
 
-    
     # CHECK SUPPORTED EXTENSION
-   
 
     if (
         file_extension
@@ -377,34 +354,27 @@ async def process_uploaded_audio(
             ),
         )
 
-   
     # CREATE UNIQUE FILE ID
-   
+
     file_id = str(
         uuid.uuid4()
     )
 
-   
     # ORIGINAL UPLOADED FILE
-  
 
     input_path = (
         UPLOAD_DIR
         / f"{file_id}{file_extension}"
     )
 
-   
     # TEMPORARY INTERNAL WAV
-   
 
     converted_path = (
         CONVERTED_DIR
         / f"{file_id}.wav"
     )
 
-   
     # FINAL OUTPUT
-   
 
     output_path = (
         OUTPUT_DIR
@@ -413,9 +383,7 @@ async def process_uploaded_audio(
 
     try:
 
-       
         # 1. SAVE UPLOADED FILE
-        
 
         with open(
             input_path,
@@ -428,9 +396,8 @@ async def process_uploaded_audio(
             )
 
         print()
-       
+
         print("UPLOADED FILE")
-        
 
         print(
             "Original filename:",
@@ -442,32 +409,27 @@ async def process_uploaded_audio(
             input_path,
         )
 
-       
         # 2. CONVERT TO WAV
-       
 
         convert_to_wav(
             input_path,
             converted_path,
         )
 
-      
         # 3. PROCESS HUMAN SPEECH
-       
 
         print()
-        
-        print("STARTING HUMAN SPEECH EXTRACTION")
-        
+
+        print(
+            "STARTING HUMAN SPEECH EXTRACTION"
+        )
 
         process_audio(
             str(converted_path),
             str(output_path),
         )
 
-       
         # 4. CHECK OUTPUT
-       
 
         if not output_path.exists():
 
@@ -484,8 +446,8 @@ async def process_uploaded_audio(
             )
 
         print()
+
         print("OUTPUT CREATED")
-        
 
         print(
             "Output path:",
@@ -498,13 +460,30 @@ async def process_uploaded_audio(
             "bytes",
         )
 
+        # CALCULATE TOTAL API LATENCY
+
+        end_time = time.perf_counter()
+
+        latency = (
+            end_time - start_time
+        )
+
         print()
-        print("PROCESSING COMPLETE")
-      
 
        
+
+        print(
+            f"TOTAL API PROCESSING LATENCY: "
+            f"{latency:.2f} seconds"
+        )
+
+        
+
+        print()
+
+        print("PROCESSING COMPLETE")
+
         # 5. RETURN CLEANED AUDIO
-       
 
         return FileResponse(
             path=str(output_path),
@@ -512,29 +491,23 @@ async def process_uploaded_audio(
             filename="human_voice.wav",
         )
 
-   
     # PRESERVE FASTAPI ERRORS
-   
 
     except HTTPException:
 
         raise
 
-   
     # HANDLE PROCESSING ERRORS
-   
 
     except Exception as e:
 
         print()
+
         print("AUDIO PROCESSING ERROR")
-        
 
         print(
             str(e)
         )
-
-       
 
         raise HTTPException(
             status_code=500,
@@ -543,15 +516,11 @@ async def process_uploaded_audio(
             ),
         )
 
-   
     # CLEANUP TEMPORARY FILES
-   
 
     finally:
 
-       
         # Close uploaded file
-       
 
         try:
 
@@ -561,9 +530,7 @@ async def process_uploaded_audio(
 
             pass
 
-       
         # Delete temporary converted WAV
-        
 
         if converted_path.exists():
 
@@ -582,9 +549,7 @@ async def process_uploaded_audio(
                     e,
                 )
 
-       
         # Delete original uploaded file
-      
 
         if input_path.exists():
 
