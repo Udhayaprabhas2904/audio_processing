@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import time
 import numpy as np
 import soundfile as sf
 import torch
@@ -10,16 +11,11 @@ from speechbrain.utils.fetching import LocalStrategy
 from silero_vad import load_silero_vad, get_speech_timestamps
 
 
-
 # CONFIGURATION
-
 
 MODEL_SAMPLE_RATE = 16000
 
 DEVICE = "cpu"
-
-
-
 
 VAD_THRESHOLD = 0.45
 
@@ -30,16 +26,12 @@ MIN_SILENCE_DURATION_MS = 500
 SPEECH_PAD_MS = 150
 
 
-
 # OUTPUT SETTINGS
-
 
 TARGET_PEAK = 0.95
 
 
-
 # PROJECT DIRECTORIES
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -55,14 +47,11 @@ PRETRAINED_DIR.mkdir(
 )
 
 
-
 # LOAD SPEECHBRAIN ENHANCEMENT MODEL
-
 
 print()
 
 print("Loading SpeechBrain speech enhancement model...")
-
 
 print(
     "Model directory:",
@@ -80,10 +69,8 @@ ENHANCER = WaveformEnhancement.from_hparams(
         "device": DEVICE,
     },
 
-   
     # Windows fix:
     # COPY avoids symbolic-link permission problems.
-    
 
     local_strategy=LocalStrategy.COPY,
 )
@@ -95,11 +82,9 @@ print(
 
 # LOAD SILERO VAD
 
-
 print()
 
 print("Loading Silero VAD model...")
-
 
 VAD_MODEL = load_silero_vad(
     onnx=False
@@ -110,12 +95,10 @@ print(
 )
 
 
-
 # LOAD AUDIO
 
-
 def load_audio(input_file):
-   
+
     audio, sample_rate = sf.read(
         input_file,
         always_2d=False,
@@ -123,6 +106,7 @@ def load_audio(input_file):
     )
 
     print()
+
     print(
         "Processing WAV sample rate:",
         sample_rate,
@@ -133,9 +117,7 @@ def load_audio(input_file):
         audio.shape,
     )
 
-   
     # Stereo / multi-channel -> mono
-   
 
     if audio.ndim > 1:
 
@@ -144,17 +126,13 @@ def load_audio(input_file):
             axis=1,
         )
 
-    
     # Ensure float32
-    
 
     audio = audio.astype(
         np.float32
     )
 
-    
     # Remove DC offset
-    
 
     audio = (
         audio
@@ -164,7 +142,6 @@ def load_audio(input_file):
     return audio, sample_rate
 
 
-
 # RESAMPLE AUDIO
 
 def resample_audio(
@@ -172,7 +149,6 @@ def resample_audio(
     original_sample_rate,
     target_sample_rate,
 ):
-    
 
     if (
         original_sample_rate
@@ -214,17 +190,10 @@ def resample_audio(
     )
 
 
-
 # NORMALIZE AUDIO
 
-
 def normalize_audio(audio):
-    """
-    Safely normalize audio.
-
-    Only reduces the level when necessary.
-    It does not aggressively amplify very quiet recordings.
-    """
+   
 
     if len(audio) == 0:
 
@@ -242,9 +211,7 @@ def normalize_audio(audio):
             np.float32
         )
 
-   
     # Only reduce audio if it exceeds target peak.
-   
 
     if peak > TARGET_PEAK:
 
@@ -259,22 +226,18 @@ def normalize_audio(audio):
     )
 
 
-
 # DETECT HUMAN SPEECH
 
-
 def detect_speech(audio_16k):
-    """
-    Detect speech using Silero VAD.
-
-    The output contains the start/end sample positions
-    of detected speech regions.
-    """
+    
 
     print()
-    print("=" * 60)
+
+    
+
     print("DETECTING HUMAN SPEECH")
-    print("=" * 60)
+
+   
 
     if len(audio_16k) == 0:
 
@@ -286,9 +249,7 @@ def detect_speech(audio_16k):
         audio_16k
     ).float()
 
-
     # Silero VAD
-   
 
     speech_timestamps = get_speech_timestamps(
         waveform,
@@ -321,9 +282,8 @@ def detect_speech(audio_16k):
         len(speech_timestamps),
     )
 
-  
     # Print detected regions
- 
+
     for index, segment in enumerate(
         speech_timestamps,
         start=1,
@@ -348,15 +308,12 @@ def detect_speech(audio_16k):
     return speech_timestamps
 
 
-
 # EXTRACT ONLY SPEECH
-
 
 def extract_speech_regions(
     audio,
     speech_timestamps,
 ):
-    
 
     if not speech_timestamps:
 
@@ -399,9 +356,7 @@ def extract_speech_regions(
         )
 
     # Join all speech regions.
-   
     # This removes background-only sections completely.
-   
 
     extracted = np.concatenate(
         speech_parts
@@ -412,20 +367,14 @@ def extract_speech_regions(
     )
 
 
-
 # ENHANCE SPEECH
 
-
 def enhance_speech(audio_16k):
-    """
-    Use SpeechBrain to suppress background noise
-    while retaining the original speech signal.
-    """
+    
 
     print()
-   
+
     print("SUPPRESSING BACKGROUND NOISE")
-    
 
     if len(audio_16k) == 0:
 
@@ -437,9 +386,8 @@ def enhance_speech(audio_16k):
         audio_16k
     ).float()
 
-    
     # SpeechBrain expects:
-    
+
     if waveform.ndim == 1:
 
         waveform = waveform.unsqueeze(0)
@@ -454,9 +402,7 @@ def enhance_speech(audio_16k):
             waveform
         )
 
-    
     # Some SpeechBrain versions may return a tuple.
-    
 
     if isinstance(
         enhanced,
@@ -465,9 +411,8 @@ def enhance_speech(audio_16k):
 
         enhanced = enhanced[0]
 
-   
     # Convert to NumPy
-   
+
     enhanced = (
         enhanced
         .detach()
@@ -475,17 +420,13 @@ def enhance_speech(audio_16k):
         .numpy()
     )
 
-    
     # Remove unnecessary dimensions
-    
 
     enhanced = np.squeeze(
         enhanced
     )
 
-    
     # Safety check
-    
 
     if enhanced.ndim != 1:
 
@@ -498,20 +439,20 @@ def enhance_speech(audio_16k):
     )
 
 
-
 # MAIN PROCESSOR
-
 
 def process_audio(
     input_file,
     output_file,
 ):
-  
+
+    # START LATENCY TIMER
+
+    start_time = time.perf_counter()
 
     print()
-    
+
     print("HUMAN SPEECH EXTRACTION")
-   
 
     input_file = str(
         Path(input_file)
@@ -521,9 +462,7 @@ def process_audio(
         Path(output_file)
     )
 
-    
     # 1. LOAD AUDIO
-    
 
     audio, original_sample_rate = load_audio(
         input_file
@@ -545,9 +484,7 @@ def process_audio(
         f"{original_duration:.2f} seconds"
     )
 
-    
     # 2. RESAMPLE TO 16 kHz
-    
 
     audio_16k = resample_audio(
         audio,
@@ -555,17 +492,13 @@ def process_audio(
         MODEL_SAMPLE_RATE,
     )
 
-   
     # 3. DETECT HUMAN SPEECH
-   
 
     speech_timestamps = detect_speech(
         audio_16k
     )
 
-    
     # 4. EXTRACT ONLY HUMAN SPEECH
-    
 
     extracted_speech = extract_speech_regions(
         audio_16k,
@@ -578,6 +511,7 @@ def process_audio(
     )
 
     print()
+
     print(
         f"Speech-only duration: "
         f"{extracted_duration:.2f} seconds"
@@ -593,17 +527,14 @@ def process_audio(
         f"{removed_duration:.2f} seconds"
     )
 
-  
     # 5. SPEECH ENHANCEMENT
-    
 
     enhanced_speech = enhance_speech(
         extracted_speech
     )
 
-    
     # 6. RESTORE ORIGINAL SAMPLE RATE
-  
+
     if (
         original_sample_rate
         != MODEL_SAMPLE_RATE
@@ -625,17 +556,14 @@ def process_audio(
             MODEL_SAMPLE_RATE
         )
 
-   
     # 7. NORMALIZE
-   
 
     enhanced_speech = normalize_audio(
         enhanced_speech
     )
 
- 
     # 8. CREATE OUTPUT DIRECTORY
-    
+
     output_path = Path(
         output_file
     )
@@ -645,11 +573,10 @@ def process_audio(
         exist_ok=True,
     )
 
-   
     # 9. SAVE OUTPUT
-    
 
     print()
+
     print(
         "Saving extracted human speech..."
     )
@@ -661,9 +588,8 @@ def process_audio(
         subtype="PCM_16",
     )
 
-  
     # 10. VERIFY OUTPUT
-   
+
     if not output_path.exists():
 
         raise RuntimeError(
@@ -676,9 +602,7 @@ def process_audio(
             "Output WAV file is empty."
         )
 
-   
     # 11. FINAL INFORMATION
-    
 
     final_duration = (
         len(enhanced_speech)
@@ -686,9 +610,12 @@ def process_audio(
     )
 
     print()
-    print("=" * 70)
+
+    
+
     print("COMPLETED")
-    print("=" * 70)
+
+    
 
     print(
         "Input:",
@@ -726,7 +653,16 @@ def process_audio(
         "bytes",
     )
 
-   
+    # CALCULATE TOTAL PROCESSING LATENCY
+
+    end_time = time.perf_counter()
+
+    latency = end_time - start_time
+
+    print(
+        f"Processing latency: "
+        f"{latency:.2f} seconds"
+    )
 
     return str(
         output_path
